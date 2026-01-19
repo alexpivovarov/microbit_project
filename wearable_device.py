@@ -224,13 +224,6 @@ def send_battery_status():
     msg = create_message("BATT", str(level))
     send_to_hub(msg)
 
-def send_heartbeat():
-    """Send heartbeat to maintain connection"""
-    current_time = running_time()
-    if current_time - state.last_heartbeat_sent >= HEARTBEAT_INTERVAL_MS:
-        msg = create_message("HBEAT", str(current_time))
-        send_to_hub(msg, allow_relay=False)
-        state.last_heartbeat_sent = current_time
 
 def check_hub_connectivity():
     """Monitor if hub is responding"""
