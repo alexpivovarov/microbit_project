@@ -31,10 +31,6 @@ SAMPLE_RATE_MS = 50          # Accelerometer sampling rate
 BATTERY_REPORT_INTERVAL_MS = 30000  # Report every 30 seconds
 SIMULATED_BATTERY_DRAIN = 0.01      # % per report cycle
 
-# Heartbeat for mesh network
-HEARTBEAT_INTERVAL_MS = 5000
-MAX_MISSED_HEARTBEATS = 3
-
 # Simulated GPS (Leeds area coordinates)
 BASE_LAT = 53.8008
 BASE_LON = -1.5491
