@@ -3,9 +3,10 @@
 Prototype fall detection system using BBC micro:bit v2 devices. Wearables detect a fall-like acceleration pattern and send alerts to a central hub over the micro:bit radio.
 
 ## Scripts
-- `central_hub.py`: hub with ACKs, hop-aware relay handling, and status display.
-- `wearable_device.py`: primary wearable/node script with heartbeat, relay handling, and fall detection.
+- `central_hub.py`: updated hub aligned with the docs in `docs/`.
+- `network_node.py`: generic node/wearable script with heartbeat and relay handling.
 - `data_capture_node.py`: capture accelerometer data over serial for tuning.
+- Legacy files (`central_hub.py`, `wearable_device.py`) are kept for reference.
 
 ## Status
 - Prototype/educational project; not a medical device.
@@ -13,8 +14,8 @@ Prototype fall detection system using BBC micro:bit v2 devices. Wearables detect
 - Mesh relay and heartbeat logic are experimental (see docs/LIMITATIONS.md).
 
 ## Quick start
-1. Set a unique DEVICE_ID in `wearable_device.py` for each wearable/node.
-2. Flash `wearable_device.py` to each wearable and `central_hub.py` to the hub.
+1. Set a unique DEVICE_ID in `network_node.py` for each wearable/node.
+2. Flash `network_node.py` to each wearable and `central_hub_v2.py` to the hub.
 3. Connect the hub to USB and open a serial monitor at 115200.
 4. Optional test mode: hold button A on a wearable at boot, then press A to simulate a fall.
 
@@ -34,9 +35,11 @@ Detailed setup and flashing instructions: docs/SETUP.md.
 ```
 microbit_project/
 ├── README.md
+├── central_hub_v2.py
+├── network_node.py
+├── data_capture_node.py
 ├── central_hub.py
 ├── wearable_device.py
-├── data_capture_node.py
 └── docs/
     ├── ARCHITECTURE.md
     ├── CONFIGURATION.md
