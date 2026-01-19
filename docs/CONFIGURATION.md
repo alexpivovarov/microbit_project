@@ -4,9 +4,10 @@
 
 ### Identity and radio
 - DEVICE_ID: unique wearable ID (integer)
-- CENTRAL_HUB_ID: hub ID (default 0)
+- HUB_ID: hub ID (default 0)
 - RADIO_GROUP: radio group shared by all devices
 - RADIO_POWER: 0-7 transmit power
+- RADIO_LENGTH: radio packet length
 
 ### Fall detection
 - IMPACT_THRESHOLD: acceleration spike threshold in mg
@@ -19,6 +20,11 @@
 - BATTERY_REPORT_INTERVAL_MS: interval between battery reports
 - SIMULATED_BATTERY_DRAIN: percent drained per report
 - BASE_LAT, BASE_LON: base coordinates for simulated GPS
+
+### Heartbeat and relay
+- HEARTBEAT_INTERVAL_MS: heartbeat interval
+- MAX_MISSED_HEARTBEATS: missed ACKs before marking hub as unresponsive
+- MAX_HOPS: hop limit for relayed messages
 
 ## central_hub.py
 
