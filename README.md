@@ -77,7 +77,7 @@ Phase 1: Impact Detection
 │  Continuous Monitoring                          │
 │  ┌───────────────────────────────────────────┐  │
 │  │ Calculate acceleration magnitude:         │  │
-│  │ magnitude = √(x² + y² + z²)              │  │
+│  │ magnitude = √(x² + y² + z²)               │  │
 │  │                                           │  │
 │  │ If magnitude > IMPACT_THRESHOLD (2500mg)  │──┼──► Enter Phase 2
 │  │ Then: Potential fall detected             │  │
