@@ -8,6 +8,81 @@ Central Hub (MicroPython, micro:bit v2)
 from microbit import *
 import radio
 
+# ============== INLINED KITRONIK OLED DRIVER ==============
+# Driver lifted from OLED.py to avoid needing a separate file on the device.
+OLED_FONT = [
+ 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422,
+ 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422,
+ 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422,
+ 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422,
+ 0x00000000, 0x000002e0, 0x00018060, 0x00afabea, 0x00aed6ea, 0x01991133, 0x010556aa, 0x00000060,
+ 0x000045c0, 0x00003a20, 0x00051140, 0x00023880, 0x00002200, 0x00021080, 0x00000100, 0x00111110,
+ 0x0007462e, 0x00087e40, 0x000956b9, 0x0005d629, 0x008fa54c, 0x009ad6b7, 0x008ada88, 0x00119531,
+ 0x00aad6aa, 0x0022b6a2, 0x00000140, 0x00002a00, 0x0008a880, 0x00052940, 0x00022a20, 0x0022d422,
+ 0x00e4d62e, 0x000f14be, 0x000556bf, 0x0008c62e, 0x0007463f, 0x0008d6bf, 0x000094bf, 0x00cac62e,
+ 0x000f909f, 0x000047f1, 0x0017c629, 0x0008a89f, 0x0008421f, 0x01f1105f, 0x01f4105f, 0x0007462e,
+ 0x000114bf, 0x000b6526, 0x010514bf, 0x0004d6b2, 0x0010fc21, 0x0007c20f, 0x00744107, 0x01f4111f,
+ 0x000d909b, 0x00117041, 0x0008ceb9, 0x0008c7e0, 0x01041041, 0x000fc620, 0x00010440, 0x01084210,
+ 0x00000820, 0x010f4a4c, 0x0004529f, 0x00094a4c, 0x000fd288, 0x000956ae, 0x000097c4, 0x0007d6a2,
+ 0x000c109f, 0x000003a0, 0x0006c200, 0x0008289f, 0x000841e0, 0x01e1105e, 0x000e085e, 0x00064a4c,
+ 0x0002295e, 0x000f2944, 0x0001085c, 0x00012a90, 0x010a51e0, 0x010f420e, 0x00644106, 0x01e8221e,
+ 0x00093192, 0x00222292, 0x00095b52, 0x0008fc80, 0x000003e0, 0x000013f1, 0x00841080, 0x0022d422
+]
+OLED_AVAILABLE = True
+_oled_initialised = False
+
+def _oled_i2c_write_cmd(cmd):
+    i2c.write(0x3C, bytearray([0, cmd]))
+
+def _oled_i2c_write_data(data):
+    i2c.write(0x3C, bytearray([0x40]) + data)
+
+def _oled_set_pos(col=0, page=0):
+    _oled_i2c_write_cmd(0xB0 | page)
+    _oled_i2c_write_cmd(0x00 | (col % 16))
+    _oled_i2c_write_cmd(0x10 | (col >> 4))
+
+def oled_init_display():
+    global _oled_initialised
+    try:
+        i2c.init(freq=400000, sda=pin20, scl=pin19)
+    except Exception as e:
+        print("OLED i2c init failed: {}".format(e))
+        raise
+    cmds = [
+        0xAE, 0xA4, 0xD5, 0xF0, 0xA8, 0x3F, 0xD3, 0x00, 0x00, 0x8D, 0x14,
+        0x20, 0x00, 0x21, 0, 127, 0x22, 0, 63, 0xA0 | 0x1, 0xC8, 0xDA, 0x12,
+        0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40, 0xA6, 0xD6, 0x00, 0xAF
+    ]
+    for cmd in cmds:
+        _oled_i2c_write_cmd(cmd)
+    _oled_initialised = True
+    oled_clear_display()
+
+def oled_clear_display():
+    for page in range(8):
+        _oled_set_pos(0, page)
+        _oled_i2c_write_data(bytearray(128))
+
+def oled_show(input_data, line=0):
+    global _oled_initialised
+    if not _oled_initialised:
+        oled_init_display()
+    pageBuf = bytearray(129)
+    pageBuf[0] = 0x40
+    input_string = str(input_data) + " "
+    y = line
+    string_array = [input_string[i:i+26] for i in range(0, len(input_string), 26)]
+    for display_string in string_array:
+        for i, char in enumerate(display_string):
+            char_bytes = OLED_FONT[ord(char)]
+            for k in range(5):
+                col = sum((1 << (l + 1)) if char_bytes & (1 << (5 * k + l)) else 0 for l in range(5))
+                pageBuf[(i * 5) + k + 1] = col
+        _oled_set_pos(0, y)
+        _oled_i2c_write_data(pageBuf)
+        y += 1
+
 # ============== CONFIGURATION ==============
 HUB_ID = 0
 RADIO_GROUP = 42
@@ -38,6 +113,8 @@ class HubState:
         self.last_status_print = 0
         self.current_alert_device = None
         self.alert_cycle_start = 0
+        self.oled_present = False
+        self.last_oled_lines = ()
 
 state = HubState()
 
@@ -51,6 +128,14 @@ def create_message(msg_type, target_id, data, hops=0):
 
 def parse_message(msg):
     """Allow DATA to contain '|' by joining middle fields."""
+    if msg is None:
+        return None
+    # radio.receive_full() returns bytes; normalize to string
+    try:
+        if isinstance(msg, (bytes, bytearray)):
+            msg = msg.decode("utf-8")
+    except Exception:
+        return None
     parts = msg.split("|")
     if len(parts) >= 5:
         try:
@@ -74,6 +159,13 @@ def increment_hops(msg_dict):
 
 def send_ack(device_id):
     radio.send(create_message("ACK", device_id, "OK", 0))
+
+def send_clear(device_id):
+    # Notify the wearable that the alert was acknowledged/reset at the hub.
+    msg = create_message("CLR", device_id, "RESET", 0)
+    for _ in range(2):
+        radio.send(msg)
+        sleep(80)
 
 # ============== DEVICE MANAGEMENT ==============
 def get_or_create_device(device_id):
@@ -164,6 +256,66 @@ def trigger_alarm():
         pin0.write_digital(0)
         sleep(200)
 
+# ============== OLED HELPERS ==============
+def setup_oled():
+    try:
+        oled_init_display()
+        state.oled_present = True
+        oled_write(["Hub ready", "Alerts: 0"], remember=True)
+    except Exception as e:
+        print("OLED init failed: {}".format(e))
+        state.oled_present = False
+
+def oled_write(lines, remember=True):
+    if not state.oled_present:
+        return
+    try:
+        oled_clear_display()
+        for idx, text in enumerate(lines[:8]):
+            oled_show(str(text)[:26], line=idx)
+        if remember:
+            state.last_oled_lines = tuple(lines[:8])
+    except Exception as e:
+        print("OLED write failed: {}".format(e))
+        state.oled_present = False
+
+def update_oled_status():
+    if not state.oled_present:
+        return
+
+    current_time = running_time()
+    active_count = 0
+    for device in state.devices.values():
+        if current_time - device.last_seen < DEVICE_TIMEOUT_MS:
+            active_count += 1
+
+    lines = []
+    if state.showing_alert:
+        alert = None
+        for candidate in state.active_alerts:
+            if candidate['device_id'] == state.current_alert_device:
+                alert = candidate
+                break
+        impact = alert['impact'] if alert else "?"
+        location = alert['location'] if alert else (0, 0)
+        loc_text = "{:.4f},{:.4f}".format(location[0], location[1]) if location else "loc n/a"
+        relay_flag = " relay" if alert and alert.get('via_relay') else ""
+        lines = [
+            "ALERT dev {}".format(state.current_alert_device if state.current_alert_device is not None else "?"),
+            "Impact:{}mg{}".format(impact, relay_flag),
+            "GPS:{}".format(loc_text),
+        ]
+    else:
+        lines = [
+            "Hub online",
+            "Devices: {}".format(active_count),
+            "Alerts: {}".format(len(state.active_alerts)),
+        ]
+
+    desired = tuple(lines[:8])
+    if desired != state.last_oled_lines:
+        oled_write(lines)
+
 # ============== DISPLAY AND STATUS ==============
 def acknowledge_alert():
     if state.active_alerts:
@@ -171,6 +323,7 @@ def acknowledge_alert():
         device = state.devices.get(alert['device_id'])
         if device:
             device.has_active_alert = False
+        send_clear(alert['device_id'])
         print("Alert acknowledged for device {}".format(alert['device_id']))
         if state.active_alerts:
             next_alert = state.active_alerts[0]
@@ -266,6 +419,7 @@ def process_message(raw_msg):
 # ============== MAIN LOOP ==============
 def main():
     setup_radio()
+    setup_oled()
     display.scroll("HUB")
     sleep(400)
     print("Central Hub started")
@@ -293,6 +447,7 @@ def main():
             state.last_status_print = current_time
 
         update_display()
+        update_oled_status()
         sleep(50)
 
 # Run

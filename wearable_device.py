@@ -9,6 +9,7 @@ from microbit import *
 import radio
 import math
 import random
+import music
 
 # ============== CONFIGURATION ==============
 DEVICE_ID = 1              # Set unique ID per node
@@ -31,6 +32,7 @@ BATTERY_REPORT_INTERVAL_MS = 30000
 SIMULATED_BATTERY_DRAIN = 0.01
 BASE_LAT = 53.8008
 BASE_LON = -1.5491
+ALERT_VOLUME = 200
 
 # ============== STATE ==============
 class State:
@@ -52,6 +54,18 @@ state = State()
 def setup_radio():
     radio.on()
     radio.config(group=RADIO_GROUP, power=RADIO_POWER, length=RADIO_LENGTH)
+
+def setup_audio():
+    # Prefer the built-in speaker on v2; safely ignore on v1.
+    try:
+        music.set_built_in_speaker_enabled(True)
+    except AttributeError:
+        pass
+    try:
+        volume = max(0, min(255, ALERT_VOLUME))
+        music.set_volume(volume)
+    except AttributeError:
+        pass
 
 def create_message(msg_type, target_id, data, hops=0):
     return "{}|{}|{}|{}|{}".format(msg_type, DEVICE_ID, target_id, data, hops)
@@ -126,6 +140,18 @@ def get_battery_level():
     state.battery_level = max(0, state.battery_level - SIMULATED_BATTERY_DRAIN)
     return round(state.battery_level, 1)
 
+def play_fall_sound():
+    # Short chirp pattern to signal a detected fall without blocking the loop.
+    melody = ['E5:2', 'C5:2', 'E5:2']
+    music.play(melody, wait=False)
+
+def safe_pin0_write(value):
+    try:
+        pin0.write_digital(value)
+    except Exception:
+        # If pin0 is busy (e.g., speaker routing), ignore the indicator pulse.
+        pass
+
 # ============== SENDING ==============
 def send_with_optional_relay(message):
     radio.send(message)
@@ -134,6 +160,7 @@ def send_with_optional_relay(message):
         radio.send(relay_wrapper)
 
 def send_fall_alert():
+    play_fall_sound()
     lat, lon = get_simulated_gps()
     accel = int(get_accel_mag())
     data = "GPS:{},{};ACC:{}".format(lat, lon, accel)
@@ -143,9 +170,9 @@ def send_fall_alert():
         sleep(120)
     display.show(Image.SAD)
     for _ in range(3):
-        pin0.write_digital(1)
+        safe_pin0_write(1)
         sleep(200)
-        pin0.write_digital(0)
+        safe_pin0_write(0)
         sleep(200)
 
 def send_battery_status():
@@ -180,6 +207,8 @@ def handle_message(msg_dict, via_relay=False):
         state.hub_responsive = True
     elif msg_dict['type'] == 'HBEAT' and msg_dict['target'] == DEVICE_ID:
         state.hub_responsive = True
+    elif msg_dict['type'] == 'CLR' and msg_dict['target'] == DEVICE_ID:
+        reset_alert_state()
 
 def process_incoming():
     msg = radio.receive()
@@ -207,6 +236,15 @@ def check_hub_connectivity():
     if now - state.last_hub_ack > HEARTBEAT_INTERVAL_MS * MAX_MISSED_HEARTBEATS:
         state.hub_responsive = False
 
+def reset_alert_state():
+    # Clear any local alert indicators when hub marks alert complete.
+    state.monitoring_stillness = False
+    state.impact_detected = False
+    state.still_start_time = 0
+    state.impact_time = 0
+    display.show(Image.HAPPY)
+    safe_pin0_write(0)
+
 def show_status_icon():
     if state.monitoring_stillness:
         display.show("!")
@@ -231,6 +269,7 @@ def run_test_mode():
 # ============== MAIN LOOP ==============
 def main():
     setup_radio()
+    setup_audio()
     display.show(str(DEVICE_ID))
     sleep(800)
 
