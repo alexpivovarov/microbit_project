@@ -139,12 +139,13 @@ def get_simulated_gps():
 def get_battery_level():
     state.battery_level = max(0, state.battery_level - SIMULATED_BATTERY_DRAIN)
     return round(state.battery_level, 1)
-
+# ============================== AUDIO HELPERS ==============
 def play_fall_sound():
     # Short chirp pattern to signal a detected fall without blocking the loop.
-    melody = ['E5:2', 'C5:2', 'E5:2']
-    music.play(melody, wait=False)
-
+    # melody = ['E5:2', 'C5:2', 'E5:2']
+    # music.play(melody, wait=False)   
+    pass
+# ============== HARDWARE HELPERS ==============
 def safe_pin0_write(value):
     try:
         pin0.write_digital(value)

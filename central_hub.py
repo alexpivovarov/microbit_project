@@ -7,7 +7,7 @@ Central Hub (MicroPython, micro:bit v2)
 
 from microbit import *
 import radio
-
+import music
 # ============== INLINED KITRONIK OLED DRIVER ==============
 # Driver lifted from OLED.py to avoid needing a separate file on the device.
 OLED_FONT = [
@@ -93,6 +93,7 @@ DEVICE_TIMEOUT_MS = 20000   # Device considered offline after this
 ALERT_DISPLAY_MS = 10000    # How long to show alert icon
 STATUS_PRINT_INTERVAL = 10000
 MAX_HOPS = 3
+ALARM_NOTES = [(659, 160), (784, 180), (988, 220)]  # pleasant chime
 
 # ============== STATE ==============
 class DeviceInfo:
@@ -156,7 +157,11 @@ def increment_hops(msg_dict):
     return "{}|{}|{}|{}|{}".format(
         msg_dict['type'], msg_dict['sender'], msg_dict['target'], msg_dict['data'], new_hops
     )
-
+def play_fall_sound():
+    # Short chirp pattern to signal a detected fall without blocking the loop.
+     melody = ['E5:2', 'C5:2', 'E5:2']
+     music.play(melody, wait=False)   
+    
 def send_ack(device_id):
     radio.send(create_message("ACK", device_id, "OK", 0))
 
@@ -206,7 +211,7 @@ def handle_fall_alert(device_id, data, via_relay=False):
     device.has_active_alert = True
     device.alert_time = running_time()
     device.last_location = (fall_data['lat'], fall_data['lon'])
-
+    play_fall_sound()
     state.active_alerts.append({
         'device_id': device_id,
         'time': running_time(),
@@ -247,14 +252,23 @@ def handle_heartbeat(device_id):
     update_device_seen(device_id)
     send_ack(device_id)
 
+def setup_audio():
+    # Enable the built-in speaker on v2 so alarms play without external hardware.
+    try:
+        music.set_built_in_speaker_enabled(True)
+    except Exception:
+        pass
+
 def trigger_alarm():
-    for _ in range(3):
-        display.show(Image.SKULL)
-        pin0.write_digital(1)
-        sleep(300)
-        display.clear()
-        pin0.write_digital(0)
-        sleep(200)
+    display.show(Image.SKULL)
+    try:
+        # Play the chime once; keep it short and pleasant.
+        for freq, dur in ALARM_NOTES:
+            music.pitch(freq, dur, wait=True)
+    except Exception:
+        pass
+    sleep(200)
+    display.clear()
 
 # ============== OLED HELPERS ==============
 def setup_oled():
@@ -420,6 +434,7 @@ def process_message(raw_msg):
 def main():
     setup_radio()
     setup_oled()
+    setup_audio()
     display.scroll("HUB")
     sleep(400)
     print("Central Hub started")
