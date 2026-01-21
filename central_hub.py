@@ -1,15 +1,18 @@
 """
 Central Hub (MicroPython, micro:bit v2)
-- Receives fall alerts, battery reports, and heartbeats
-- Sends ACKs and tracks device status
-- Handles relayed messages with hop limits
+- Receives fall alerts from sensors
+- Sends ACKs back to sensors
+- OLED display for status
+- Alert acknowledgment system
+- Outputs data via serial to desktop
+
+Flash to the hub MicroBit (connect to laptop via USB)
 """
 
 from microbit import *
 import radio
-import music
+
 # ============== INLINED KITRONIK OLED DRIVER ==============
-# Driver lifted from OLED.py to avoid needing a separate file on the device.
 OLED_FONT = [
  0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422,
  0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422, 0x0022d422,
@@ -28,8 +31,9 @@ OLED_FONT = [
  0x0002295e, 0x000f2944, 0x0001085c, 0x00012a90, 0x010a51e0, 0x010f420e, 0x00644106, 0x01e8221e,
  0x00093192, 0x00222292, 0x00095b52, 0x0008fc80, 0x000003e0, 0x000013f1, 0x00841080, 0x0022d422
 ]
-OLED_AVAILABLE = True
+
 _oled_initialised = False
+oled_present = False
 
 def _oled_i2c_write_cmd(cmd):
     i2c.write(0x3C, bytearray([0, cmd]))
@@ -87,31 +91,19 @@ def oled_show(input_data, line=0):
 HUB_ID = 0
 RADIO_GROUP = 42
 RADIO_POWER = 7
-RADIO_LENGTH = 120  # bytes; keep below 251 for micro:bit
-
-DEVICE_TIMEOUT_MS = 20000   # Device considered offline after this
-ALERT_DISPLAY_MS = 10000    # How long to show alert icon
-STATUS_PRINT_INTERVAL = 10000
-MAX_HOPS = 3
-ALARM_NOTES = [(659, 160), (784, 180), (988, 220)]  # pleasant chime
 
 # ============== STATE ==============
 class DeviceInfo:
     def __init__(self, device_id):
         self.device_id = device_id
-        self.battery_level = 100
         self.last_seen = 0
-        self.last_location = (0, 0)
         self.has_active_alert = False
-        self.alert_time = 0
 
 class HubState:
     def __init__(self):
-        self.devices = {}  # device_id -> DeviceInfo
+        self.devices = {}
         self.active_alerts = []
-        self.alert_display_start = 0
         self.showing_alert = False
-        self.last_status_print = 0
         self.current_alert_device = None
         self.alert_cycle_start = 0
         self.oled_present = False
@@ -119,55 +111,56 @@ class HubState:
 
 state = HubState()
 
-# ============== RADIO HELPERS ==============
+# ============== SETUP ==============
 def setup_radio():
     radio.on()
-    radio.config(group=RADIO_GROUP, power=RADIO_POWER, length=RADIO_LENGTH)
+    radio.config(group=RADIO_GROUP, power=RADIO_POWER)
 
-def create_message(msg_type, target_id, data, hops=0):
-    return "{}|{}|{}|{}|{}".format(msg_type, HUB_ID, target_id, data, hops)
+def setup_oled():
+    try:
+        oled_init_display()
+        state.oled_present = True
+        oled_write(["Hub ready", "Alerts: 0"])
+    except:
+        state.oled_present = False
+        print("OLED not found")
 
+# ============== MESSAGE FUNCTIONS ==============
 def parse_message(msg):
-    """Allow DATA to contain '|' by joining middle fields."""
+    """Parse message format: TYPE|SENDER|TARGET|DATA"""
     if msg is None:
         return None
-    # radio.receive_full() returns bytes; normalize to string
     try:
         if isinstance(msg, (bytes, bytearray)):
             msg = msg.decode("utf-8")
-    except Exception:
+    except:
         return None
+    
     parts = msg.split("|")
-    if len(parts) >= 5:
+    if len(parts) >= 4:
         try:
             return {
                 'type': parts[0],
                 'sender': int(parts[1]),
                 'target': int(parts[2]),
-                'data': "|".join(parts[3:-1]),
-                'hops': int(parts[-1]),
-                'raw': msg,
+                'data': parts[3]
             }
         except ValueError:
             return None
     return None
 
-def increment_hops(msg_dict):
-    new_hops = msg_dict['hops'] + 1
-    return "{}|{}|{}|{}|{}".format(
-        msg_dict['type'], msg_dict['sender'], msg_dict['target'], msg_dict['data'], new_hops
-    )
-def play_fall_sound():
-    # Short chirp pattern to signal a detected fall without blocking the loop.
-     melody = ['E5:2', 'C5:2', 'E5:2']
-     music.play(melody, wait=False)   
-    
+def create_message(msg_type, target_id, data):
+    """Create message: TYPE|SENDER|TARGET|DATA"""
+    return "{}|{}|{}|{}".format(msg_type, HUB_ID, target_id, data)
+
 def send_ack(device_id):
-    radio.send(create_message("ACK", device_id, "OK", 0))
+    """Send acknowledgment to device"""
+    msg = create_message("ACK", device_id, "OK")
+    radio.send(msg)
 
 def send_clear(device_id):
-    # Notify the wearable that the alert was acknowledged/reset at the hub.
-    msg = create_message("CLR", device_id, "RESET", 0)
+    """Notify device that alert was acknowledged"""
+    msg = create_message("CLR", device_id, "RESET")
     for _ in range(2):
         radio.send(msg)
         sleep(80)
@@ -183,162 +176,60 @@ def update_device_seen(device_id):
     device.last_seen = running_time()
     return device
 
-def check_offline_devices():
-    current_time = running_time()
-    for device_id, device in state.devices.items():
-        if current_time - device.last_seen > DEVICE_TIMEOUT_MS:
-            print("WARNING: Device {} appears offline".format(device_id))
-
 # ============== ALERT HANDLING ==============
-def parse_fall_data(data):
-    result = {'lat': 0, 'lon': 0, 'accel': 0}
-    try:
-        parts = data.split(";")
-        for part in parts:
-            if part.startswith("GPS:"):
-                coords = part[4:].split(",")
-                result['lat'] = float(coords[0])
-                result['lon'] = float(coords[1])
-            elif part.startswith("ACC:"):
-                result['accel'] = int(part[4:])
-    except Exception:
-        pass
-    return result
-
-def handle_fall_alert(device_id, data, via_relay=False):
-    device = update_device_seen(device_id)
-    fall_data = parse_fall_data(data)
+def handle_fall_alert(sender, data):
+    """Process fall alert"""
+    device = update_device_seen(sender)
     device.has_active_alert = True
-    device.alert_time = running_time()
-    device.last_location = (fall_data['lat'], fall_data['lon'])
-    play_fall_sound()
+    
+    # Parse acceleration from data
+    accel = 0
+    if "ACC:" in data:
+        try:
+            accel = int(data.split("ACC:")[1])
+        except:
+            pass
+    
+    # Add to active alerts
     state.active_alerts.append({
-        'device_id': device_id,
+        'device_id': sender,
         'time': running_time(),
-        'location': device.last_location,
-        'impact': fall_data['accel'],
-        'via_relay': via_relay,
+        'impact': accel
     })
-
+    
     state.showing_alert = True
-    state.alert_display_start = running_time()
-    state.current_alert_device = device_id
+    state.current_alert_device = sender
     state.alert_cycle_start = running_time()
-
-    print("=" * 50)
-    print("!!! FALL ALERT !!!" + (" (relay)" if via_relay else ""))
-    print("Device ID: {}".format(device_id))
-    print("Location: {}, {}".format(fall_data['lat'], fall_data['lon']))
-    print("Impact Force: {} mg".format(fall_data['accel']))
-    print("Time: {} ms".format(running_time()))
-    print("=" * 50)
-
-    trigger_alarm()
-    send_ack(device_id)
-
-def handle_battery_update(device_id, level):
-    device = update_device_seen(device_id)
-    try:
-        device.battery_level = float(level)
-    except ValueError:
-        device.battery_level = 0
-
-    if device.battery_level < 20:
-        print("WARNING: Device {} battery low: {}%".format(device_id, device.battery_level))
-    print("Device {} battery: {}%".format(device_id, device.battery_level))
-    send_ack(device_id)
-
-def handle_heartbeat(device_id):
-    update_device_seen(device_id)
-    send_ack(device_id)
-
-def setup_audio():
-    # Enable the built-in speaker on v2 so alarms play without external hardware.
-    try:
-        music.set_built_in_speaker_enabled(True)
-    except Exception:
-        pass
-
-def trigger_alarm():
+    
+    # Output to serial for desktop client
+    print("FALL,{},{}".format(sender, accel))
+    
+    print("=" * 40)
+    print("!!! FALL ALERT !!!")
+    print("Device ID: {}".format(sender))
+    print("Impact: {} mg".format(accel))
+    print("=" * 40)
+    
+    # Visual alert
     display.show(Image.SKULL)
-    try:
-        # Play the chime once; keep it short and pleasant.
-        for freq, dur in ALARM_NOTES:
-            music.pitch(freq, dur, wait=True)
-    except Exception:
-        pass
-    sleep(200)
-    display.clear()
+    sleep(500)
+    
+    # Send ACK to sensor
+    send_ack(sender)
 
-# ============== OLED HELPERS ==============
-def setup_oled():
-    try:
-        oled_init_display()
-        state.oled_present = True
-        oled_write(["Hub ready", "Alerts: 0"], remember=True)
-    except Exception as e:
-        print("OLED init failed: {}".format(e))
-        state.oled_present = False
-
-def oled_write(lines, remember=True):
-    if not state.oled_present:
-        return
-    try:
-        oled_clear_display()
-        for idx, text in enumerate(lines[:8]):
-            oled_show(str(text)[:26], line=idx)
-        if remember:
-            state.last_oled_lines = tuple(lines[:8])
-    except Exception as e:
-        print("OLED write failed: {}".format(e))
-        state.oled_present = False
-
-def update_oled_status():
-    if not state.oled_present:
-        return
-
-    current_time = running_time()
-    active_count = 0
-    for device in state.devices.values():
-        if current_time - device.last_seen < DEVICE_TIMEOUT_MS:
-            active_count += 1
-
-    lines = []
-    if state.showing_alert:
-        alert = None
-        for candidate in state.active_alerts:
-            if candidate['device_id'] == state.current_alert_device:
-                alert = candidate
-                break
-        impact = alert['impact'] if alert else "?"
-        location = alert['location'] if alert else (0, 0)
-        loc_text = "{:.4f},{:.4f}".format(location[0], location[1]) if location else "loc n/a"
-        relay_flag = " relay" if alert and alert.get('via_relay') else ""
-        lines = [
-            "ALERT dev {}".format(state.current_alert_device if state.current_alert_device is not None else "?"),
-            "Impact:{}mg{}".format(impact, relay_flag),
-            "GPS:{}".format(loc_text),
-        ]
-    else:
-        lines = [
-            "Hub online",
-            "Devices: {}".format(active_count),
-            "Alerts: {}".format(len(state.active_alerts)),
-        ]
-
-    desired = tuple(lines[:8])
-    if desired != state.last_oled_lines:
-        oled_write(lines)
-
-# ============== DISPLAY AND STATUS ==============
 def acknowledge_alert():
+    """Acknowledge and clear current alert (button press)"""
     if state.active_alerts:
         alert = state.active_alerts.pop(0)
         device = state.devices.get(alert['device_id'])
         if device:
             device.has_active_alert = False
+        
+        # Notify sensor that alert was acknowledged
         send_clear(alert['device_id'])
         print("Alert acknowledged for device {}".format(alert['device_id']))
+        
+        # Move to next alert if any
         if state.active_alerts:
             next_alert = state.active_alerts[0]
             state.current_alert_device = next_alert['device_id']
@@ -350,120 +241,118 @@ def acknowledge_alert():
         return True
     return False
 
+# ============== OLED FUNCTIONS ==============
+def oled_write(lines):
+    """Write lines to OLED display"""
+    if not state.oled_present:
+        return
+    try:
+        oled_clear_display()
+        for idx, text in enumerate(lines[:8]):
+            oled_show(str(text)[:26], line=idx)
+        state.last_oled_lines = tuple(lines[:8])
+    except:
+        state.oled_present = False
+
+def update_oled():
+    """Update OLED with current status"""
+    if not state.oled_present:
+        return
+    
+    if state.showing_alert:
+        alert = None
+        for a in state.active_alerts:
+            if a['device_id'] == state.current_alert_device:
+                alert = a
+                break
+        impact = alert['impact'] if alert else "?"
+        lines = [
+            "ALERT dev {}".format(state.current_alert_device),
+            "Impact: {} mg".format(impact),
+            "Press B to ACK"
+        ]
+    else:
+        lines = [
+            "Hub online",
+            "Devices: {}".format(len(state.devices)),
+            "Alerts: {}".format(len(state.active_alerts))
+        ]
+    
+    if tuple(lines) != state.last_oled_lines:
+        oled_write(lines)
+
+# ============== DISPLAY ==============
 def show_alert_pattern(device_id):
-    """Show 'device id' then three flashes of ! in a loop until acknowledged."""
+    """Flash device ID and ! alternately"""
     if device_id is None:
         display.show("!")
         return
-    elapsed = (running_time() - state.alert_cycle_start) % 2000  # 2s cycle
+    elapsed = (running_time() - state.alert_cycle_start) % 2000
     if elapsed < 500:
         display.show(str(device_id))
     else:
-        flash_slot = int((elapsed - 500) // 250)  # 0..5 over 1500ms
+        flash_slot = int((elapsed - 500) // 250)
         if flash_slot % 2 == 0:
             display.show("!")
         else:
             display.clear()
 
 def update_display():
-    current_time = running_time()
+    """Update LED matrix display"""
     if state.showing_alert:
         show_alert_pattern(state.current_alert_device)
     else:
-        active_count = 0
-        for device in state.devices.values():
-            if current_time - device.last_seen < DEVICE_TIMEOUT_MS:
-                active_count += 1
-        if state.active_alerts:
-            display.show("!")
-        elif active_count > 0:
-            display.show(str(active_count))
+        if len(state.devices) > 0:
+            display.show(str(len(state.devices)))
         else:
             display.show("-")
 
-def print_status():
-    current_time = running_time()
-    print("\n--- System Status ---")
-    print("Active Alerts: {}".format(len(state.active_alerts)))
-    print("Registered Devices: {}".format(len(state.devices)))
-    for device_id, device in state.devices.items():
-        age = (current_time - device.last_seen) // 1000
-        status = "ONLINE" if age < DEVICE_TIMEOUT_MS // 1000 else "OFFLINE"
-        alert_flag = " [ALERT!]" if device.has_active_alert else ""
-        print("  Device {}: {} | Battery: {}% | Last seen: {}s ago{}".format(
-            device_id, status, device.battery_level, age, alert_flag))
-    print("-------------------\n")
-
 # ============== MESSAGE PROCESSING ==============
-def process_message(raw_msg):
-    parsed = parse_message(raw_msg)
+def process_message(msg):
+    """Process incoming radio message"""
+    parsed = parse_message(msg)
     if not parsed:
         return
-
+    
+    if parsed['target'] != HUB_ID:
+        return
+    
     sender = parsed['sender']
     msg_type = parsed['type']
-
-    # If this is a RELAY wrapper, unwrap and process inner message
-    if msg_type == 'RELAY':
-        inner = parse_message(parsed['data'])
-        if not inner:
-            return
-        if inner['hops'] >= MAX_HOPS:
-            return
-        inner['hops'] += 1  # count this hop
-        process_message("{}|{}|{}|{}|{}".format(
-            inner['type'], inner['sender'], inner['target'], inner['data'], inner['hops']
-        ))
-        return
-
-    # Ignore messages not intended for the hub
-    if parsed['target'] != HUB_ID and msg_type != 'ACK':
-        return
-
+    data = parsed['data']
+    
     if msg_type == 'FALL':
-        handle_fall_alert(sender, parsed['data'], via_relay=False)
-    elif msg_type == 'BATT':
-        handle_battery_update(sender, parsed['data'])
-    elif msg_type == 'HBEAT':
-        handle_heartbeat(sender)
-    elif msg_type == 'ACK':
-        # ACKs to the hub are ignored
-        return
+        handle_fall_alert(sender, data)
 
-# ============== MAIN LOOP ==============
+# ============== MAIN ==============
 def main():
     setup_radio()
     setup_oled()
-    setup_audio()
     display.scroll("HUB")
     sleep(400)
     print("Central Hub started")
-
+    
     while True:
-        while True:
-            msg = radio.receive()
-            if not msg:
-                break
+        # Process incoming messages
+        msg = radio.receive()
+        if msg:
             process_message(msg)
-
+        
+        # Button B: acknowledge alert
         if button_b.was_pressed():
             if acknowledge_alert():
                 display.show(Image.YES)
                 sleep(500)
-            else:
-                print_status()
-
+        
+        # Button A: print status
         if button_a.was_pressed():
-            print_status()
-
-        current_time = running_time()
-        if current_time - state.last_status_print > STATUS_PRINT_INTERVAL:
-            check_offline_devices()
-            state.last_status_print = current_time
-
+            print("\n--- Status ---")
+            print("Devices: {}".format(list(state.devices.keys())))
+            print("Active alerts: {}".format(len(state.active_alerts)))
+            print("--------------\n")
+        
         update_display()
-        update_oled_status()
+        update_oled()
         sleep(50)
 
-# Run
 main()
