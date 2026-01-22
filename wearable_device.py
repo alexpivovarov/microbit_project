@@ -24,12 +24,14 @@ STILLNESS_DURATION_MS = 2000   # 2 seconds still = fall confirmed
 POST_IMPACT_WINDOW_MS = 4000   # 4 seconds to detect stillness after impact
 
 SAMPLE_RATE_MS = 50
+HEARTBEAT_INTERVAL_MS = 5000   # advertise presence to the hub every 5s
 
 # ============== STATE ==============
 impact_detected = False
 impact_time = 0
 monitoring_stillness = False
 still_start_time = 0
+last_heartbeat_sent = 0
 
 # ============== SETUP ==============
 radio.on()
@@ -60,6 +62,18 @@ def send_fall_alert():
     # Visual feedback
     display.show(Image.SAD)
     sleep(2000)
+
+def send_heartbeat():
+    """Send a lightweight presence ping so the hub tracks this device"""
+    radio.send(create_message("HBEAT", str(running_time())))
+
+def maybe_send_heartbeat():
+    """Emit heartbeat at a fixed interval"""
+    global last_heartbeat_sent
+    now = running_time()
+    if last_heartbeat_sent == 0 or now - last_heartbeat_sent >= HEARTBEAT_INTERVAL_MS:
+        send_heartbeat()
+        last_heartbeat_sent = now
 
 def analyze_movement():
     """
@@ -113,6 +127,7 @@ def run_test_mode():
     """Test mode - press A to simulate fall, B to show acceleration"""
     display.scroll("TEST")
     while True:
+        maybe_send_heartbeat()
         if button_a.was_pressed():
             display.scroll("FALL")
             send_fall_alert()
@@ -126,6 +141,7 @@ def run_test_mode():
 # ============== MAIN ==============
 display.show(str(DEVICE_ID))
 sleep(1000)
+maybe_send_heartbeat()  # initial presence beacon
 
 # Hold A on startup for test mode
 if button_a.is_pressed():
@@ -133,6 +149,7 @@ if button_a.is_pressed():
 
 # Main loop
 while True:
+    maybe_send_heartbeat()
     fall_detected = analyze_movement()
     
     if fall_detected:

@@ -217,6 +217,13 @@ def handle_fall_alert(sender, data):
     # Send ACK to sensor
     send_ack(sender)
 
+def handle_heartbeat(sender, data):
+    """Update presence when a wearable pings the hub"""
+    was_known = sender in state.devices
+    update_device_seen(sender)
+    if not was_known:
+        print("Device {} joined".format(sender))
+
 def acknowledge_alert():
     """Acknowledge and clear current alert (button press)"""
     if state.active_alerts:
@@ -323,6 +330,8 @@ def process_message(msg):
     
     if msg_type == 'FALL':
         handle_fall_alert(sender, data)
+    elif msg_type == 'HBEAT':
+        handle_heartbeat(sender, data)
 
 # ============== MAIN ==============
 def main():
