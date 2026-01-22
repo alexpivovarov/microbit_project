@@ -26,6 +26,9 @@ POST_IMPACT_WINDOW_MS = 4000   # 4 seconds to detect stillness after impact
 SAMPLE_RATE_MS = 50
 HEARTBEAT_INTERVAL_MS = 5000   # advertise presence to the hub every 5s
 
+last_data_send = 0
+DATA_SEND_INTERVAL_MS = 500  # Send data every 500ms
+
 # ============== STATE ==============
 impact_detected = False
 impact_time = 0
@@ -158,5 +161,13 @@ while True:
     # Show status
     if not monitoring_stillness:
         display.show(Image.HEART_SMALL)
+
+    now = running_time()
+    
+    if now - last_data_send >= DATA_SEND_INTERVAL_MS:
+        last_data_send = now
+        mag = int(get_magnitude())
+        msg = create_message("DATA", "ACC:{}".format(mag))
+        radio.send(msg)
     
     sleep(SAMPLE_RATE_MS)
