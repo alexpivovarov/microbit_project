@@ -201,8 +201,8 @@ def handle_fall_alert(sender, data):
     state.current_alert_device = sender
     state.alert_cycle_start = running_time()
     
-    # Output to serial for desktop client
-    print("FALL,{},{}".format(sender, accel))
+    # Output to serial for desktop client (sensor_id,status,magnitude)
+    print("{},FALL,{}".format(sender, accel))
     
     print("=" * 40)
     print("!!! FALL ALERT !!!")
@@ -223,6 +223,17 @@ def handle_heartbeat(sender, data):
     update_device_seen(sender)
     if not was_known:
         print("Device {} joined".format(sender))
+
+def handle_impact(sender, data):
+    """Log an immediate impact snapshot for desktop plotting"""
+    update_device_seen(sender)
+    accel = 0
+    if "ACC:" in data:
+        try:
+            accel = int(data.split("ACC:")[1])
+        except:
+            pass
+    print("{},IMPACT,{}".format(sender, accel))
 
 def acknowledge_alert():
     """Acknowledge and clear current alert (button press)"""
@@ -332,15 +343,16 @@ def process_message(msg):
         handle_fall_alert(sender, data)
     elif msg_type == 'HBEAT':
         handle_heartbeat(sender, data)
-
-    if msg_type == 'DATA':
+    elif msg_type == 'IMPACT':
+        handle_impact(sender, data)
+    elif msg_type == 'DATA':
         accel = 0
         if "ACC:" in data:
             try:
                 accel = int(data.split("ACC:")[1])
             except:
                 pass
-        print("DATA,{},{}".format(sender, accel))
+        print("{},DATA,{}".format(sender, accel))
 # ============== MAIN ==============
 def main():
     setup_radio()

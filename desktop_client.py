@@ -29,6 +29,7 @@ import re
 # ===== CONFIGURATION =====
 BAUD_RATE = 115200
 MAX_POINTS = 100  # Number of points on graph
+FALL_THRESHOLD_MG = 3200
 
 # ===== DATA STORAGE =====
 sensor_data = {}  # sensor_id -> {'times': deque, 'values': deque}
@@ -209,7 +210,13 @@ def setup_plot():
         ax.set_title(f'Sensor {i+1} - Accelerometer')
         ax.set_ylabel('Acceleration (mg)')
         ax.set_ylim(0, 4000)
-        ax.axhline(y=2500, color='red', linestyle='--', alpha=0.7, label='Fall threshold (2500mg)')
+        ax.axhline(
+            y=FALL_THRESHOLD_MG,
+            color='red',
+            linestyle='--',
+            alpha=0.7,
+            label='Fall threshold ({}mg)'.format(FALL_THRESHOLD_MG),
+        )
         ax.axhline(y=1000, color='green', linestyle=':', alpha=0.7, label='Rest state (1000mg)')
         ax.legend(loc='upper right', fontsize=8)
         

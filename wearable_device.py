@@ -35,6 +35,7 @@ impact_time = 0
 monitoring_stillness = False
 still_start_time = 0
 last_heartbeat_sent = 0
+impact_peak_mag = 0
 
 # ============== SETUP ==============
 radio.on()
@@ -54,17 +55,27 @@ def create_message(msg_type, data):
 
 def send_fall_alert():
     """Send fall alert to hub"""
-    accel = int(get_magnitude())
+    global impact_peak_mag
+    accel = impact_peak_mag if impact_peak_mag else int(get_magnitude())
     msg = create_message("FALL", "ACC:{}".format(accel))
     
     # Send multiple times for reliability
     for _ in range(3):
         radio.send(msg)
         sleep(100)
+
+    impact_peak_mag = 0  # reset for next event
     
     # Visual feedback
     display.show(Image.SAD)
     sleep(2000)
+
+def send_impact_event(accel):
+    """Send immediate impact snapshot for desktop plotting."""
+    msg = create_message("IMPACT", "ACC:{}".format(accel))
+    for _ in range(2):
+        radio.send(msg)
+        sleep(50)
 
 def send_heartbeat():
     """Send a lightweight presence ping so the hub tracks this device"""
@@ -85,10 +96,11 @@ def analyze_movement():
     2. Monitor for stillness after impact
     3. Confirm fall if still for 2 seconds within 4 second window
     """
-    global impact_detected, impact_time, monitoring_stillness, still_start_time
+    global impact_detected, impact_time, monitoring_stillness, still_start_time, impact_peak_mag
     
     now = running_time()
     magnitude = get_magnitude()
+    mag_int = int(magnitude)
     
     if not monitoring_stillness:
         # Phase 1: Looking for impact
@@ -97,10 +109,14 @@ def analyze_movement():
             impact_time = now
             monitoring_stillness = True
             still_start_time = 0
+            impact_peak_mag = mag_int
+            send_impact_event(mag_int)
             display.show("!")
             return False
     else:
         # Phase 2: Monitoring for stillness after impact
+        if mag_int > impact_peak_mag:
+            impact_peak_mag = mag_int
         deviation = abs(magnitude - 1000)
         
         if deviation < STILLNESS_THRESHOLD:
@@ -122,6 +138,7 @@ def analyze_movement():
         if now - impact_time > POST_IMPACT_WINDOW_MS:
             monitoring_stillness = False
             impact_detected = False
+            impact_peak_mag = 0
             display.show(Image.HAPPY)
     
     return False
