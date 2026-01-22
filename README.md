@@ -21,6 +21,15 @@ Prototype fall detection system using BBC micro:bit v2 devices. Wearables detect
 
 Detailed setup and flashing instructions: docs/SETUP.md.
 
+## Installation and flashing (Windows/macOS/Linux)
+- Prereqs: BBC micro:bit v2 boards, USB data cables, Python 3 with pip (for `uflash`) or Mu editor installed.
+- Configure each wearable first: set a unique `DEVICE_ID` in `wearable_device.py`; keep `RADIO_GROUP` and `HUB_ID` consistent across devices.
+- Windows: install Python (enable "Add to PATH") ; connect the micro:bit (shows as a drive) and run `pip install uflash` followed by `uflash central_hub.py` (hub) or `uflash wearable_device.py` (wearables).
+- macOS: install Python 3 (brew or python.org), `pip install uflash`, then `uflash central_hub.py` or `uflash wearable_device.py`; verify the board appears as `/dev/tty.usbmodem*` for serial monitoring (e.g., `screen /dev/tty.usbmodem* 115200`).
+- Linux: `python3 -m pip install --user uflash`, ensure your user can access USB/serial devices (dialout/plugdev as needed), then `uflash central_hub.py` or `uflash wearable_device.py`; typical serial port is `/dev/ttyACM0` at 115200.
+- Linux: 'pipx install uflash' or 'pip install uflash', then run 'pipx run uflash wearable_device.py' or 'uflash wearable_device.py'
+- After flashing, connect the hub over USB, open a serial monitor at 115200, power on wearables, and trigger test mode (hold A on boot) to verify radio/alert behavior before field use.
+
 ## Documentation
 - docs/SETUP.md - prerequisites and flashing steps.
 - docs/ARCHITECTURE.md - component and data flow overview.
@@ -51,3 +60,4 @@ microbit_project/
 
 ## License
 No license specified.
+time toplay marvel rivals

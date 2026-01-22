@@ -12,7 +12,7 @@ import radio
 import math
 
 # ============== CONFIGURATION ==============
-DEVICE_ID = 1              # CHANGE THIS: 1, 2, etc. for each sensor
+DEVICE_ID = 2              # CHANGE THIS: 1, 2, etc. for each sensor
 HUB_ID = 0
 RADIO_GROUP = 42
 RADIO_POWER = 7
