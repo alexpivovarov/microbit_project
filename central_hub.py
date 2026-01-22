@@ -333,6 +333,14 @@ def process_message(msg):
     elif msg_type == 'HBEAT':
         handle_heartbeat(sender, data)
 
+    if msg_type == 'DATA':
+        accel = 0
+        if "ACC:" in data:
+            try:
+                accel = int(data.split("ACC:")[1])
+            except:
+                pass
+        print("DATA,{},{}".format(sender, accel))
 # ============== MAIN ==============
 def main():
     setup_radio()
