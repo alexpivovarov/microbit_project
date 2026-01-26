@@ -1,3 +1,7 @@
+This file mirrors `README.md` (it’s easy to accidentally open the wrong one).
+
+---
+
 # MicroBit Elderly Fall Detection System
 
 A prototype fall-detection demo using BBC micro:bit v2 devices:
